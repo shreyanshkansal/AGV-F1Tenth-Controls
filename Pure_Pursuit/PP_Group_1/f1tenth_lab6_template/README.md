@@ -50,3 +50,6 @@ To visualize the list of waypoints you have, and to visualize the current waypoi
 - Running particle_filter: **20** Points
 - Implementing pure pursuit: **30** Points
 - Video: **10** Points
+
+
+# LEARNT TO GIT PUSH
