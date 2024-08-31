@@ -41,12 +41,22 @@ private:
     vector<double> goal_position;
 
     float base_angle = 0;
+    float look_ahead = 3;
     float L;
     double steering_angle(float L, float alpha, float D){
         return atan(2*L*sin(alpha)/D);
     }
 
+    double arctan_0_to_pi(double x) {
+    double angle = atan(x);
     
+    // Adjust the angle to be in the range [0, π]
+    if (x < 0) {
+        angle -= M_PI;
+    }
+    
+    return angle;
+}
     void get_transform()
     {
         geometry_msgs::msg::TransformStamped transformStamped,transformStamped_L,transformStamped_R;
@@ -102,6 +112,7 @@ private:
         std::ifstream file(filePath);
         std::string line;
         int index = 0;
+        float min=10000;
 
         if (!file.is_open()) {
             std::cerr << "Error: Could not open the file!" << filePath << std::endl;
@@ -113,7 +124,6 @@ private:
             std::stringstream ss(line);
             std::string value;
             std::vector<double> coordinates;
-            // float min=15;
 
 
             // Split the line by comma and extract x, y, z
@@ -127,10 +137,15 @@ private:
             }
 
             if (coordinates.size() == 3) {
-                float angle = atan(coordinates[1]-base_position[1]/coordinates[0]-base_position[1]) + base_angle;
+                // float angle = atan(coordinates[1]-base_position[1]/coordinates[0]-base_position[1]) - base_angle;
                 float dist = sqrt(pow(base_position[0]-coordinates[0],2)+pow(base_position[0]-coordinates[0],2));
-                if(dist<5 && fabs(angle)<1.56) {
+                
 
+                if(dist<min ) { //&& fabs(angle)<1.56
+                    cout << coordinates[0] << "," << coordinates[1] << "," <<coordinates[2] << endl;
+                    std::cout << min << ","<< dist << endl;
+                    min = dist;
+                    std::cout << "New Min: " << min << endl;
                     nearest_wp = coordinates;
                 }
             } else {
@@ -150,7 +165,7 @@ public:
         // TODO: create ROS subscribers and publishers
         publisher_ = this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("drive", 10);
         // subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>("goal_pose", 10, std::bind(&PurePursuit::pose_callback, this, std::placeholders::_1));
-        timer_ = this->create_wall_timer(1000ms, std::bind(&PurePursuit::navigator, this));
+        timer_ = this->create_wall_timer(500ms, std::bind(&PurePursuit::navigator, this));
     }
 
 
@@ -158,15 +173,15 @@ public:
     {
         get_transform();
         // std::string filePath = "waypoints.csv";
-        goal_position = readCoordinates("/home/utsab/ROS2_Workspaces/sim_ws/src/f1tenth_lab6_template/pure_pursuit/src/waypoints.csv");
-        RCLCPP_INFO(this->get_logger(), "Target Waypoint: (%f,%f,%f)",goal_position[0],goal_position[1],goal_position[2]);
+        goal_position = readCoordinates("/home/utsab/ROS2_Workspaces/sim_ws/src/f1tenth_lab6_template/pure_pursuit/src/waypoints2.csv");
+        // RCLCPP_INFO(this->get_logger(), "Target Waypoint: (%f,%f,%f)",goal_position[0],goal_position[1],goal_position[2]);
 
         
         // TODO: find the current waypoint to track using methods mentioned in lecture
         // goal_position[0] =  pose_msg->pose.position.x;
         // goal_position[1] =  pose_msg->pose.position.y;
         // goal_position[2] =  pose_msg->pose.position.z;
-        double alpha = atan(goal_position[1]-base_position[1]/goal_position[0]-base_position[1]) + base_angle;
+        double alpha = arctan_0_to_pi(goal_position[1]-base_position[1]/goal_position[0]-base_position[1]) - base_angle;
         double LA_dist = sqrt((goal_position[1]-base_position[1])*(goal_position[1]-base_position[1]) + (goal_position[0]-base_position[0])*(goal_position[0]-base_position[0]));
 
         // TODO: transform goal point to vehicle frame of reference
@@ -178,10 +193,11 @@ public:
 
         // TODO: publish drive message, don't forget to limit the steering angle.
         auto message = ackermann_msgs::msg::AckermannDriveStamped();
-        message.drive.speed=0.5;
-        message.drive.steering_angle = (fabs(delta)>0.5)? delta:0;
+        message.drive.speed=1;
+        message.drive.steering_angle = (fabs(delta)>0.5)? 0.5:1;
         // message.drive.steering_angle = delta;
-        RCLCPP_INFO(this->get_logger(), "Speed: %.2f,Steering Angle : %.2f",message.drive.speed,delta);
+        // message.drive.steering_angle=-0.2;
+        // RCLCPP_INFO(this->get_logger(), "Speed: %.2f,Steering Angle : %.2f,Base Angle: %.2f",message.drive.speed,delta,base_angle);
         publisher_->publish(message);
 
     }
