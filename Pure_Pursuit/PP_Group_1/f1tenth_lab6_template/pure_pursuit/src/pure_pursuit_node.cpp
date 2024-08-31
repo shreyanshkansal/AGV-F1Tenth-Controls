@@ -44,6 +44,8 @@ private:
     float look_ahead = 3;
     float L;
     double steering_angle(float L, float alpha, float D){
+        cout << alpha << endl;
+        cout << D << endl;
         return atan(2*L*sin(alpha)/D);
     }
 
@@ -56,7 +58,7 @@ private:
     }
     
     return angle;
-}
+    }
     void get_transform()
     {
         geometry_msgs::msg::TransformStamped transformStamped,transformStamped_L,transformStamped_R;
@@ -93,14 +95,6 @@ private:
 
             RCLCPP_INFO(this->get_logger(), "Translation: x=%.2f, y=%.2f, z=%.2f", base_position[0],base_position[1],base_position[2]);
             // RCLCPP_INFO(this->get_logger(), "Rotation: roll=%.2f, pitch=%.2f, yaw=%.2f", roll, pitch, yaw);
-
-            // auto message = std_msgs::msg::String();
-            // message.data = "Hello, ROS 2!";
-            // RCLCPP_INFO(this->get_logger(), "Publishing: '%s'", message.data.c_str());
-            // publisher_->publish(message);
-        
-
-
         }
         catch (tf2::TransformException &ex)
         {
@@ -139,13 +133,12 @@ private:
             if (coordinates.size() == 3) {
                 // float angle = atan(coordinates[1]-base_position[1]/coordinates[0]-base_position[1]) - base_angle;
                 float dist = sqrt(pow(base_position[0]-coordinates[0],2)+pow(base_position[0]-coordinates[0],2));
-                
-
+                // cout<< index << endl;
                 if(dist<min ) { //&& fabs(angle)<1.56
-                    cout << coordinates[0] << "," << coordinates[1] << "," <<coordinates[2] << endl;
-                    std::cout << min << ","<< dist << endl;
+                    // cout << coordinates[0] << "," << coordinates[1] << "," <<coordinates[2] << endl;
+                    // std::cout << min << ","<< dist << endl;
                     min = dist;
-                    std::cout << "New Min: " << min << endl;
+                    // std::cout << "New Min: " << min << endl;
                     nearest_wp = coordinates;
                 }
             } else {
@@ -174,19 +167,17 @@ public:
         get_transform();
         // std::string filePath = "waypoints.csv";
         goal_position = readCoordinates("/home/utsab/ROS2_Workspaces/sim_ws/src/f1tenth_lab6_template/pure_pursuit/src/waypoints2.csv");
-        // RCLCPP_INFO(this->get_logger(), "Target Waypoint: (%f,%f,%f)",goal_position[0],goal_position[1],goal_position[2]);
+        RCLCPP_INFO(this->get_logger(), "Target Waypoint: (%f,%f,%f)",goal_position[0],goal_position[1],goal_position[2]);
+        RCLCPP_INFO(this->get_logger(), "Bot Position: (%f,%f,%f)",base_position[0],base_position[1],base_position[2]);
 
-        
-        // TODO: find the current waypoint to track using methods mentioned in lecture
-        // goal_position[0] =  pose_msg->pose.position.x;
-        // goal_position[1] =  pose_msg->pose.position.y;
-        // goal_position[2] =  pose_msg->pose.position.z;
-        double alpha = arctan_0_to_pi(goal_position[1]-base_position[1]/goal_position[0]-base_position[1]) - base_angle;
+
+        double alpha = atan(goal_position[1]-base_position[1]/goal_position[0]-base_position[1]) - base_angle;
         double LA_dist = sqrt((goal_position[1]-base_position[1])*(goal_position[1]-base_position[1]) + (goal_position[0]-base_position[0])*(goal_position[0]-base_position[0]));
 
         // TODO: transform goal point to vehicle frame of reference
 
 
+        // L=0.1;
 
         // TODO: calculate curvature/steering angle
         float delta = steering_angle(L,alpha,LA_dist);
@@ -194,11 +185,12 @@ public:
         // TODO: publish drive message, don't forget to limit the steering angle.
         auto message = ackermann_msgs::msg::AckermannDriveStamped();
         message.drive.speed=1;
-        message.drive.steering_angle = (fabs(delta)>0.5)? 0.5:1;
-        // message.drive.steering_angle = delta;
+        // message.drive.steering_angle = (fabs(delta)>0.5)? 0.5:delta;
+        message.drive.steering_angle = delta;
         // message.drive.steering_angle=-0.2;
-        // RCLCPP_INFO(this->get_logger(), "Speed: %.2f,Steering Angle : %.2f,Base Angle: %.2f",message.drive.speed,delta,base_angle);
+        RCLCPP_INFO(this->get_logger(), "Speed: %.2f,Steering Angle : %.2f,Base Angle: %.2f, L = %.2f",message.drive.speed,delta,base_angle,L);
         publisher_->publish(message);
+        RCLCPP_INFO(this->get_logger(), "XXX=============================================XXX");
 
     }
 
