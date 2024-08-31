@@ -1,4 +1,5 @@
 #include <sstream>
+#include <fstream>
 #include <string>
 #include <cmath>
 #include <vector>
@@ -37,7 +38,7 @@ private:
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr subscriber_;
 
     vector<double> base_position = {0,0,0};
-    vector<double> goal_position = {0,0,0};
+    vector<double> goal_position;
 
     float base_angle = 0;
     float L;
@@ -81,7 +82,7 @@ private:
             base_angle = yaw;
 
             RCLCPP_INFO(this->get_logger(), "Translation: x=%.2f, y=%.2f, z=%.2f", base_position[0],base_position[1],base_position[2]);
-            RCLCPP_INFO(this->get_logger(), "Rotation: roll=%.2f, pitch=%.2f, yaw=%.2f", roll, pitch, yaw);
+            // RCLCPP_INFO(this->get_logger(), "Rotation: roll=%.2f, pitch=%.2f, yaw=%.2f", roll, pitch, yaw);
 
             // auto message = std_msgs::msg::String();
             // message.data = "Hello, ROS 2!";
@@ -96,43 +97,91 @@ private:
             RCLCPP_WARN(this->get_logger(), "Could not transform from 'map' to 'base_link 11': %s", ex.what());
         }
     }
+
+    vector<double> readCoordinates(const std::string &filePath) {
+        std::ifstream file(filePath);
+        std::string line;
+        int index = 0;
+
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open the file!" << filePath << std::endl;
+            
+        }
+        vector<double> nearest_wp;
+
+        while (std::getline(file, line)) {
+            std::stringstream ss(line);
+            std::string value;
+            std::vector<double> coordinates;
+            // float min=15;
+
+
+            // Split the line by comma and extract x, y, z
+            while (std::getline(ss, value, ',')) {
+                try {
+                    coordinates.push_back(std::stod(value));
+                } catch (const std::invalid_argument &e) {
+                    std::cerr << "Error: Invalid number format at line " << index << std::endl;
+                    break;
+                }
+            }
+
+            if (coordinates.size() == 3) {
+                float angle = atan(coordinates[1]-base_position[1]/coordinates[0]-base_position[1]) + base_angle;
+                float dist = sqrt(pow(base_position[0]-coordinates[0],2)+pow(base_position[0]-coordinates[0],2));
+                if(dist<5 && fabs(angle)<1.56) {
+
+                    nearest_wp = coordinates;
+                }
+            } else {
+                std::cerr << "Error: Incorrect data format at line " << index << std::endl;
+            }
+
+            ++index;
+        }
+
+        file.close();
+        return nearest_wp;
+    }
+
 public:
     PurePursuit() : Node("pure_pursuit_node"),tf_buffer_(this->get_clock()),tf_listener_(tf_buffer_)
     {
         // TODO: create ROS subscribers and publishers
         publisher_ = this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("drive", 10);
-        // timer_ = this->create_wall_timer(500ms, std::bind(&PurePursuit::publish_message, this));
-
-        subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>("goal_pose", 10, std::bind(&PurePursuit::pose_callback, this, std::placeholders::_1));
-
-        // timer_ = this->create_wall_timer(500ms, std::bind(&PurePursuit::get_transform, this));
+        // subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>("goal_pose", 10, std::bind(&PurePursuit::pose_callback, this, std::placeholders::_1));
+        timer_ = this->create_wall_timer(1000ms, std::bind(&PurePursuit::navigator, this));
     }
 
-    void pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr pose_msg)
-    {
 
+    void navigator()
+    {
         get_transform();
-        // TODO: find the current waypoint to track using methods mentioned in lecture
+        // std::string filePath = "waypoints.csv";
+        goal_position = readCoordinates("/home/utsab/ROS2_Workspaces/sim_ws/src/f1tenth_lab6_template/pure_pursuit/src/waypoints.csv");
+        RCLCPP_INFO(this->get_logger(), "Target Waypoint: (%f,%f,%f)",goal_position[0],goal_position[1],goal_position[2]);
+
         
-        goal_position[0] =  pose_msg->pose.position.x;
-        goal_position[1] =  pose_msg->pose.position.y;
-        goal_position[2] =  pose_msg->pose.position.z;
+        // TODO: find the current waypoint to track using methods mentioned in lecture
+        // goal_position[0] =  pose_msg->pose.position.x;
+        // goal_position[1] =  pose_msg->pose.position.y;
+        // goal_position[2] =  pose_msg->pose.position.z;
         double alpha = atan(goal_position[1]-base_position[1]/goal_position[0]-base_position[1]) + base_angle;
         double LA_dist = sqrt((goal_position[1]-base_position[1])*(goal_position[1]-base_position[1]) + (goal_position[0]-base_position[0])*(goal_position[0]-base_position[0]));
 
         // TODO: transform goal point to vehicle frame of reference
 
-    
+
 
         // TODO: calculate curvature/steering angle
         float delta = steering_angle(L,alpha,LA_dist);
 
         // TODO: publish drive message, don't forget to limit the steering angle.
         auto message = ackermann_msgs::msg::AckermannDriveStamped();
-        message.drive.speed=0.7;
-        // message.drive.steering_angle = (fabs(delta)>0.17)? delta:0;
-        message.drive.steering_angle = delta;
-
+        message.drive.speed=0.5;
+        message.drive.steering_angle = (fabs(delta)>0.5)? delta:0;
+        // message.drive.steering_angle = delta;
+        RCLCPP_INFO(this->get_logger(), "Speed: %.2f,Steering Angle : %.2f",message.drive.speed,delta);
         publisher_->publish(message);
 
     }
