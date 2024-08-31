@@ -21,6 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'stanley_controller = f1tenth_stanley_controller.scripts.controller_node:main'
+            'get_waypoints = f1tenth_stanley_controller.scripts.get_waypoints:main'
         ],
     },
 )
