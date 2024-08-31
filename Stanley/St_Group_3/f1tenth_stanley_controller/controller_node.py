@@ -2,6 +2,7 @@ import rclpy
 from rclpy.node import Node
 import csv
 import numpy as np
+from rclpy.qos import QoSProfile
 from tf2_ros import Buffer
 from tf2_ros import TransformException
 from tf2_ros.transform_listener import TransformListener
@@ -31,13 +32,13 @@ class StanleyController(Node):
         self.ff = 'map'
         self.wayfile = '/sim_ws/src/f1tenth_stanley_controller/resource/waypoints.csv'
         self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_Buffer, self)
+        self.tf_listener = TransformListener(self.tf_buffer, self)
         #Assuming that the waypoints are delivered to us in the right chronological sequence (probably assigned by some ID)
         self.waypoints = []
         self.goal = 0
-
-        self.publisher = self.create_publisher(AckermannDriveStamped,'/drive',10)
-        self.vel_pub = self.create_publisher(Twist,'/cmd_vel',10)
+        qos = QoSProfile(depth=10)
+        self.publisher = self.create_publisher(AckermannDriveStamped,'/drive',qos_profile=qos)
+        self.vel_pub = self.create_publisher(Twist,'/cmd_vel',qos_profile=qos)
         self.timer = self.create_timer(0.010,self.compute)
 
     def getWaypoints(self):
@@ -79,10 +80,13 @@ class StanleyController(Node):
                 y1 = self.waypoints[self.goal][1]
                 x2 = self.waypoints[self.goal+1][0]
                 y2 = self.waypoints[self.goal+1][1]
+                
                 dist1 = np.sqrt(np.power(x1-x0,2)+np.power(y1-y0,2))
                 dist2 = np.sqrt(np.power(x2-x0,2)+np.power(y2-y0,2))
                 if dist1<dist2:
                     break
+                else: 
+                    self.goal+=1
             m = (y2 - y1)/(x2 - x1)
             c = y1 - m*x1
             e_t = abs(m*x0 - y0 + c)/np.sqrt(1 + m*m)
