@@ -46,13 +46,14 @@ private:
     float base_angle = 0;
     float look_ahead = 3;
     float L;
+    float bot_speed=1;
     double alpha=0;
     int target_index=0;
     float lad =1;
 
     double steering_angle(float L, float alpha, float D){
-        cout << alpha << endl;
-        cout << D << endl;
+        // cout << alpha << endl;
+        // cout << D << endl;
         return atan(2*L*sin(alpha)/D);
     }
 
@@ -100,7 +101,7 @@ private:
             m.getRPY(roll, pitch, yaw); // Extract the roll, pitch, and yaw
             base_angle = yaw;
 
-            RCLCPP_INFO(this->get_logger(), "Translation: x=%.2f, y=%.2f, z=%.2f", base_position[0],base_position[1],base_position[2]);
+            // RCLCPP_INFO(this->get_logger(), "Translation: x=%.2f, y=%.2f, z=%.2f", base_position[0],base_position[1],base_position[2]);
             // RCLCPP_INFO(this->get_logger(), "Rotation: roll=%.2f, pitch=%.2f, yaw=%.2f", roll, pitch, yaw);
         }
         catch (tf2::TransformException &ex)
@@ -150,11 +151,10 @@ private:
     }   
 
     vector<double> choose_waypoint(){
-        // cout<<"started"<< endl;
         cout<<waypoints.size()<<endl; 
         int size = (int)waypoints.size();
+        target_index = target_index%size;
         for(int i=target_index;i<size;i++){
-            // cout<<"works"<<endl;
 
             float dx = waypoints[i].first - base_position[0];
             float dy = waypoints[i].second - base_position[1] ; 
@@ -163,12 +163,7 @@ private:
             float local_y = -dx * sin(base_angle) + dy * cos(base_angle);
             alpha = atan(local_y/local_x);
 
-            if(dist>lad and fabs(alpha)<1.56) { //&& fabs(angle)<1.56
-                // std::cout << "Waypoint " << i << ": x = " << waypoints[i].first
-                //   << ", y = " << waypoints[i].second << std::endl;
-                // goal_position[0] = waypoints[i].first;
-                // goal_position[1] = waypoints[i].second;
-                
+            if(dist>lad and fabs(alpha)<1.56) { 
                 target_index = i;
                 break;
             }
@@ -181,45 +176,39 @@ private:
 public:
     PurePursuit() : Node("pure_pursuit_node"),tf_buffer_(this->get_clock()),tf_listener_(tf_buffer_)
     {
-        // TODO: create ROS subscribers and publishers
+        //Generates list of waypoints from the csv
         readCoordinates("/home/utsab/ROS2_Workspaces/sim_ws/src/f1tenth_lab6_template/pure_pursuit/src/waypoints3.csv");
+
+        //Defined the publisher
         publisher_ = this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("drive", 10);
-        // subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>("goal_pose", 10, std::bind(&PurePursuit::pose_callback, this, std::placeholders::_1));
+        //timer which loops every 500ms and updates stuff for the bot
         timer_ = this->create_wall_timer(500ms, std::bind(&PurePursuit::navigator, this));
     }
 
 
     void navigator()
     {
+        //gets the bot position and yaw
         get_transform();
+
+        //chooses the appropriate waypoint based on the different parameters and updates the target goal
         goal_position = choose_waypoint();
 
-        cout<<"hello"<<endl;
         RCLCPP_INFO(this->get_logger(), "Target Waypoint: (%f,%f,%f)",goal_position[0],goal_position[1],goal_position[2]);
         RCLCPP_INFO(this->get_logger(), "Bot Position: (%f,%f,%f)",base_position[0],base_position[1],base_position[2]);
-
-
-        // double alpha = atan(goal_position[1]-base_position[1]/goal_position[0]-base_position[1]) - base_angle;
-        // double LA_dist = sqrt((goal_position[1]-base_position[1])*(goal_position[1]-base_position[1]) + (goal_position[0]-base_position[0])*(goal_position[0]-base_position[0]));
-
-        // TODO: transform goal point to vehicle frame of reference
-
-
-        // L=0.1;
 
         // TODO: calculate curvature/steering angle
         float delta = steering_angle(L,alpha,lad);
 
         // TODO: publish drive message, don't forget to limit the steering angle.
         auto message = ackermann_msgs::msg::AckermannDriveStamped();
-        message.drive.speed=2;
-        // message.drive.steering_angle = (fabs(delta)>0.5)? 0.5*(delta)/fabs(delta):delta;
+        message.drive.speed=bot_speed;
+        message.drive.steering_angle = (fabs(delta)>0.5)? 0.5*(delta)/fabs(delta):delta;
         message.drive.steering_angle = delta;
-        // message.drive.steering_angle=-0.2;
-        RCLCPP_INFO(this->get_logger(), "Speed: %.2f,Steering Angle : %.2f,Base Angle: %.2f, Alpha = %.2f",message.drive.speed,message.drive.steering_angle,base_angle,alpha);
         publisher_->publish(message);
-        RCLCPP_INFO(this->get_logger(), "XXX=============================================XXX");
 
+        RCLCPP_INFO(this->get_logger(), "Speed: %.2f,Steering Angle : %.2f,Base Angle: %.2f, Alpha = %.2f",message.drive.speed,message.drive.steering_angle,base_angle,alpha);
+        RCLCPP_INFO(this->get_logger(), "XXX=============================================XXX");
     }
 
     ~PurePursuit() {}
