@@ -32,13 +32,15 @@ class StanleyController(Node):
         self.wayfile ='/home/rohan/sim_ws/src/stanley_controller/resource/waypoints.csv'
         self.waypoints=[]
         # Define parameters for Stanley Control
-        self.k = 1.0  # Steering gain
-        self.k_s = 1.0  # Softening constant for velocity
-        self.max_steering_angle = np.deg2rad(30)  # Max steering angle in radians
+        self.k_head = 1   
+        self.k_cross_track = 1# Steering gain
+        self.k_cross_track_multiplier = 1
+        self.k_s = 0.1  # Softening constant for velocity
+        self.max_steering_angle = np.deg2rad(45)  # Max steering angle in radians
         self.last_target_x, self.last_target_y = None, None
-        self.velocity = 1.0  # Default velocity, adjust as needed
+        self.velocity = 1.2  # Default velocity, adjust as needed
         self.current_pose = [0,0,0,0] #x,y,z,yaw
-        
+        self.lookahead_time=0.3
         # Initialize Transform Buffer and Listener
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -72,15 +74,13 @@ class StanleyController(Node):
         # Find the target point (simplified to a fixed point ahead)
         self.get_target_point()
         self.transform()
-        if self.last_target_x is None:
-            self.last_target_x, self.last_target_y = self.target_x, self.target_y
 
         # Calculate cross-track error
         cross_track_error = self.calculate_cross_track_error()
         # Calculate heading error
         heading_error = self.calculate_heading_error()
         # Calculate steering angle using Stanley control formula
-        steering_angle = heading_error + np.arctan2(self.k * cross_track_error, self.k_s + self.velocity)
+        steering_angle = self.k_head*heading_error + self.k_cross_track_multiplier*np.arctan2(self.k_cross_track * cross_track_error, self.k_s + self.velocity)
         # Limit the steering angle
         steering_angle = np.clip(steering_angle, -self.max_steering_angle, self.max_steering_angle)
 
@@ -118,21 +118,79 @@ class StanleyController(Node):
         
         return roll_x, pitch_y, yaw_z
 
-    def get_target_point(self):
+    @staticmethod
+    def distance_along_line(x1, y1, x2, y2, px, py):
+        """
+        Calculate the distance of point (px, py) along the line segment joining points (x1, y1) and (x2, y2).
+        Positive distance means the point is closer to (x1, y1) than to (x2, y2) and not between them.
+        Zero distance means the point is exactly at (x1, y1).
+        Negative distance means the point is between (x1, y1) and (x2, y2) or closer to (x2, y2).
+        
+        :param x1: x-coordinate of the first point.
+        :param y1: y-coordinate of the first point.
+        :param x2: x-coordinate of the second point.
+        :param y2: y-coordinate of the second point.
+        :param px: x-coordinate of the point to measure the distance from.
+        :param py: y-coordinate of the point to measure the distance from.
+        :return: The distance of point (px, py) along the line.
+        """
+        if(x1,y1==x2,y2):
+            return np.sqrt((x1-px)**2+(y1-py)**2)
+        # Vector from (x1, y1) to (x2, y2)
+        line_dx = x2 - x1
+        line_dy = y2 - y1
+
+        # Vector from (x1, y1) to (px, py)
+        point_dx = px - x1
+        point_dy = py - y1
+
+        # Calculate the dot product and squared length of the line segment
+        dot_product = line_dx * point_dx + line_dy * point_dy
+        line_length_squared = line_dx * line_dx + line_dy * line_dy
+
+        # Calculate the distance along the line
+        if line_length_squared == 0:
+            return 0.0
+
+        projection = dot_product / line_length_squared
+
+        # Check if the point is between the two points on the line segment
+        if 0 <= projection <= 1:
+            return -projection
+        else:
+            return projection
+
+
+    def get_target_point(self):  
         with open(file=self.wayfile,mode='r') as file:
             reader = csv.reader(file)
             self.waypoints = list(reader)
         self.target_x = float(self.waypoints[self.goal][0])
         self.target_y = float(self.waypoints[self.goal][1])
-        dist_sq=(self.current_pose[0]-self.target_x)**2+((self.current_pose[1]-self.target_y)**2)
+        if self.last_target_x is None:
+            self.last_target_x, self.last_target_y = self.target_x, self.target_y
+        dist_sq=StanleyController.distance_along_line(self.target_x,self.target_y,self.last_target_x,self.last_target_y,self.current_pose[0],self.current_pose[1])
+        while(dist_sq<self.velocity*self.lookahead_time):
+            self.goal+=1
+            if(self.goal==len(self.waypoints)):
+                self.goal=0
+            self.last_target_x=self.target_x
+            self.last_target_y=self.target_y
+            self.target_x = float(self.waypoints[self.goal][0])
+            self.target_y = float(self.waypoints[self.goal][1])
+            dist_sq=StanleyController.distance_along_line(self.target_x,self.target_y,self.last_target_x,self.last_target_y,self.current_pose[0],self.current_pose[1])
+            self.last_dist_sq=dist_sq
         if(self.last_dist_sq):
             if(dist_sq>self.last_dist_sq): #shift to next point moving away from current point
                 self.goal+=1
                 if(self.goal==len(self.waypoints)):
                     self.goal=0
+                self.last_target_x=self.target_x
+                self.last_target_y=self.target_y
                 self.target_x = float(self.waypoints[self.goal][0])
                 self.target_y = float(self.waypoints[self.goal][1])
-        self.last_dist=dist_sq     
+                dist_sq=StanleyController.distance_along_line(self.target_x,self.target_y,self.last_target_x,self.last_target_y,self.current_pose[0],self.current_pose[1])
+        self.last_dist_sq=dist_sq     
 
     def calculate_cross_track_error(self):
         denom=np.sqrt((self.last_target_y - self.target_y) ** 2 + (self.last_target_x - self.target_x) ** 2)
@@ -166,7 +224,7 @@ class StanleyController(Node):
             self.current_pose[2] = (transform_base.transform.translation.z + self.z_0)
 
             # Log the center of the front axle
-            self.get_logger().info(f"Front Axle Center Coordinates: x: {self.x_0}, y: {self.y_0}, z: {self.z_0}")
+            #self.get_logger().info(f"Front Axle Center Coordinates: x: {self.x_0}, y: {self.y_0}, z: {self.z_0}")
 
             # Extract the rotation in quaternion form
             qx = transform_base.transform.rotation.x
