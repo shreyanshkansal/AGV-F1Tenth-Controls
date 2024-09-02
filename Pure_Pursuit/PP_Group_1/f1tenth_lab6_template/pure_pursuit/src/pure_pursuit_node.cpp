@@ -44,12 +44,12 @@ private:
     vector<pair<double,double>> waypoints;
 
     float base_angle = 0;
-    float look_ahead = 3;
-    float L;
-    float bot_speed=1;
+    float look_ahead = 2;
+    float L; //baselink to wheel hinge midpoint distance
+    float bot_speed=5;
     double alpha=0;
     int target_index=0;
-    float lad =1;
+    float lad =1; //look-ahead distance
 
     double steering_angle(float L, float alpha, float D){
         // cout << alpha << endl;
@@ -57,16 +57,6 @@ private:
         return atan(2*L*sin(alpha)/D);
     }
 
-    double arctan_0_to_pi(double x) {
-        double angle = atan(x);
-
-        // Adjust the angle to be in the range [0, π]
-        if (x < 0) {
-            angle -= M_PI;
-        }
-        
-        return angle;
-        }
     void get_transform()
     {
         geometry_msgs::msg::TransformStamped transformStamped,transformStamped_L,transformStamped_R;
@@ -101,8 +91,6 @@ private:
             m.getRPY(roll, pitch, yaw); // Extract the roll, pitch, and yaw
             base_angle = yaw;
 
-            // RCLCPP_INFO(this->get_logger(), "Translation: x=%.2f, y=%.2f, z=%.2f", base_position[0],base_position[1],base_position[2]);
-            // RCLCPP_INFO(this->get_logger(), "Rotation: roll=%.2f, pitch=%.2f, yaw=%.2f", roll, pitch, yaw);
         }
         catch (tf2::TransformException &ex)
         {
@@ -114,7 +102,6 @@ private:
         std::ifstream file(filePath);
         std::string line;
         int index = 0;
-        // float min=10000;
 
         if (!file.is_open()) {
             std::cerr << "Error: Could not open the file!" << filePath << std::endl;
@@ -150,10 +137,32 @@ private:
 
     }   
 
+    void initiate_target_index(){
+        return;     //comment out this return to use the function
+        int size = (int)waypoints.size();
+        float min = 10000;
+        for(int i=0;i<size;i++){
+
+            float dx = waypoints[i].first - base_position[0];
+            float dy = waypoints[i].second - base_position[1] ; 
+            float dist = sqrt(pow(dx,2)+pow(dy,2));
+            float local_x = dx * cos(base_angle) + dy * sin(base_angle);
+            float local_y = -dx * sin(base_angle) + dy * cos(base_angle);
+            float temp_alpha = atan(local_y/local_x);
+            
+            if(dist>lad and fabs(temp_alpha)<1.56 and dist<min) { 
+                min=dist;
+                target_index=i;
+            }
+            
+        }
+    }
+
     vector<double> choose_waypoint(){
         cout<<waypoints.size()<<endl; 
         int size = (int)waypoints.size();
-        target_index = target_index%size;
+        if(target_index==size) initiate_target_index();
+        
         for(int i=target_index;i<size;i++){
 
             float dx = waypoints[i].first - base_position[0];
@@ -164,13 +173,15 @@ private:
             alpha = atan(local_y/local_x);
 
             if(dist>lad and fabs(alpha)<1.56) { 
-                target_index = i;
+                // target_index = i;
+                cout << target_index <<endl;
                 break;
             }
-
+            target_index++;
         };
         return {waypoints[target_index].first,waypoints[target_index].second,0};
     }
+
 
 
 public:
@@ -179,10 +190,11 @@ public:
         //Generates list of waypoints from the csv
         readCoordinates("/home/utsab/ROS2_Workspaces/sim_ws/src/f1tenth_lab6_template/pure_pursuit/src/waypoints3.csv");
 
+        initiate_target_index();
         //Defined the publisher
         publisher_ = this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("drive", 10);
         //timer which loops every 500ms and updates stuff for the bot
-        timer_ = this->create_wall_timer(500ms, std::bind(&PurePursuit::navigator, this));
+        timer_ = this->create_wall_timer(100ms, std::bind(&PurePursuit::navigator, this));
     }
 
 
@@ -202,7 +214,7 @@ public:
 
         // TODO: publish drive message, don't forget to limit the steering angle.
         auto message = ackermann_msgs::msg::AckermannDriveStamped();
-        message.drive.speed=bot_speed;
+        message.drive.speed=bot_speed*(1-fabs(alpha)/1.57);
         message.drive.steering_angle = (fabs(delta)>0.5)? 0.5*(delta)/fabs(delta):delta;
         message.drive.steering_angle = delta;
         publisher_->publish(message);
