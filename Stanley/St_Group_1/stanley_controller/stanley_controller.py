@@ -15,7 +15,6 @@ class StanleyController(Node):
         super().__init__('stanley_controller_node')
 
         # Create a timer to run the controller function
-        self.create_timer(0.001, self.control)
         self.last_dist_sq = None
         self.goal=0
         # Create a publisher for the drive command
@@ -25,10 +24,10 @@ class StanleyController(Node):
             10
         )
         
-        self.flh = 'ego_racecar/front_left_hinge'
-        self.frh = 'ego_racecar/front_right_hinge'
+        self.flh = "ego_racecar/front_left_hinge"
+        self.frh = "ego_racecar/front_right_hinge"
         self.fmap = 'map'
-        self.base_link = 'ego_racecar/base_link'
+        self.base_link = "ego_racecar/base_link"
 
         self.wayfile ='/home/rohan/sim_ws/src/stanley_controller/resource/waypoints.csv'
         self.waypoints=[]
@@ -61,6 +60,7 @@ class StanleyController(Node):
             self.get_logger().info('Map frame is available.')
             # Stop the timer once the frame is available
             self.timer.cancel()
+            self.create_timer(0.001, self.control)
         except TransformException:
             self.get_logger().warn('Map frame is not available yet.')
 
@@ -70,9 +70,10 @@ class StanleyController(Node):
             return
         
         # Find the target point (simplified to a fixed point ahead)
-        target_x, target_y = self.get_target_point()
+        self.get_target_point()
+        self.transform()
         if self.last_target_x is None:
-            self.last_target_x, self.last_target_y = target_x, target_y
+            self.last_target_x, self.last_target_y = self.target_x, self.target_y
 
         # Calculate cross-track error
         cross_track_error = self.calculate_cross_track_error()
@@ -86,9 +87,9 @@ class StanleyController(Node):
         # Publish the drive command
         drive_msg = AckermannDriveStamped()
         drive_msg.header.stamp = self.get_clock().now().to_msg()
-        drive_msg.header.frame_id = "map"
+        drive_msg.header.frame_id = self.fmap
         #drive_msg.drive.acceleration = float(0)  # Ensure acceleration is a float
-        #drive_msg.drive.jerk = float(0)  # Ensure jerk is a float
+        #drive  _msg.drive.jerk = float(0)  # Ensure jerk is a float
         drive_msg.drive.steering_angle = steering_angle
         #drive_msg.drive.steering_angle_velocity = float(0)  # Ensure steering_angle_velocity is a float
         drive_msg.drive.speed = self.velocity  # Use current velocity
@@ -97,23 +98,23 @@ class StanleyController(Node):
         # Log the published message
         self.get_logger().info(f'Publishing steering angle: {steering_angle:.2f} and speed: {self.velocity:.2f}.')
 
-        self.last_target_x, self.last_target_y = target_x, target_y
+        self.last_target_x, self.last_target_y = self.target_x, self.target_y
 
+    @staticmethod
     def euler_from_quaternion(x, y, z, w):
         # Convert quaternion to Euler angles
-        import math
         t0 = +2.0 * (w * x + y * z)
         t1 = +1.0 - 2.0 * (x * x + y * y)
-        roll_x = math.atan2(t0, t1)
+        roll_x = np.arctan2(t0, t1)
         
         t2 = +2.0 * (w * y - z * x)
         t2 = +1.0 if t2 > +1.0 else t2
         t2 = -1.0 if t2 < -1.0 else t2
-        pitch_y = math.asin(t2)
+        pitch_y = np.arcsin(t2)
         
         t3 = +2.0 * (w * z + x * y)
         t4 = +1.0 - 2.0 * (y * y + z * z)
-        yaw_z = math.atan2(t3, t4)
+        yaw_z = np.arctan2(t3, t4)
         
         return roll_x, pitch_y, yaw_z
 
@@ -134,7 +135,11 @@ class StanleyController(Node):
         self.last_dist=dist_sq     
 
     def calculate_cross_track_error(self):
-        return abs((self.last_target_y - self.target_y) * self.current_pose[0] - (self.last_target_x - self.target_x) * self.current_pose[1] + self.last_target_x * self.target_y - self.last_target_y * self.target_x) / np.sqrt((self.last_target_y - self.target_y) ** 2 + (self.last_target_x - self.target_x) ** 2)
+        denom=np.sqrt((self.last_target_y - self.target_y) ** 2 + (self.last_target_x - self.target_x) ** 2)
+        if denom!=0:
+            return abs((self.last_target_y - self.target_y) * self.current_pose[0] - (self.last_target_x - self.target_x) * self.current_pose[1] + self.last_target_x * self.target_y - self.last_target_y * self.target_x) /denom
+        else:
+            return 0
 
     def calculate_heading_error(self):
         target_yaw = np.arctan2(self.target_y - self.current_pose[1], self.target_x - self.current_pose[0])
@@ -146,27 +151,34 @@ class StanleyController(Node):
             transform_left = self.tf_buffer.lookup_transform(self.base_link, self.flh, rclpy.time.Time())
             transform_right = self.tf_buffer.lookup_transform(self.base_link, self.frh, rclpy.time.Time())
 
-            self.x_0 = (transform_left.transform.translation.x + transform_right.transform.translation.x)/2
-            self.y_0 = (transform_left.transform.translation.y + transform_right.transform.translation.y)/2
-            self.z_0 = (transform_left.transform.translation.z + transform_right.transform.translation.z)/2
+            # Check if any transformation has NaN values
+            for t in [transform_base, transform_left, transform_right]:
+                if any(np.isnan([t.transform.translation.x, t.transform.translation.y, t.transform.translation.z,
+                                t.transform.rotation.x, t.transform.rotation.y, t.transform.rotation.z, t.transform.rotation.w])):
+                    raise ValueError("Transform contains NaN values")
+
+            self.x_0 = (transform_left.transform.translation.x + transform_right.transform.translation.x) / 2
+            self.y_0 = (transform_left.transform.translation.y + transform_right.transform.translation.y) / 2
+            self.z_0 = (transform_left.transform.translation.z + transform_right.transform.translation.z) / 2
 
             self.current_pose[0] = (transform_base.transform.translation.x + self.x_0)
             self.current_pose[1] = (transform_base.transform.translation.y + self.y_0)
             self.current_pose[2] = (transform_base.transform.translation.z + self.z_0)
+
             # Log the center of the front axle
-            self.get_logger().info("Front Axle Center Coordinates: x: {x}, y: {y}, z: {z}")
-        except TransformException as ex:
-            self.get_logger().info(f'Transformation failed: {ex}')
+            self.get_logger().info(f"Front Axle Center Coordinates: x: {self.x_0}, y: {self.y_0}, z: {self.z_0}")
 
-         # Extract the rotation in quaternion form
-        qx = transform_base.transform.rotation.x
-        qy = transform_base.transform.rotation.y
-        qz = transform_base.transform.rotation.z
-        qw = transform_base.transform.rotation.w
+            # Extract the rotation in quaternion form
+            qx = transform_base.transform.rotation.x
+            qy = transform_base.transform.rotation.y
+            qz = transform_base.transform.rotation.z
+            qw = transform_base.transform.rotation.w
 
-        #convert it into euler angle
-        _,_,self.current_pose[3]=self.euler_from_quaternion(qx, qy, qz, qw)
+            # Convert it into Euler angle
+            _, _, self.current_pose[3] = StanleyController.euler_from_quaternion(qx, qy, qz, qw)
 
+        except (TransformException, ValueError) as ex:
+            self.get_logger().warn(f'Transformation failed: {ex}')
 
 def main(args=None):
     rclpy.init(args=args)
