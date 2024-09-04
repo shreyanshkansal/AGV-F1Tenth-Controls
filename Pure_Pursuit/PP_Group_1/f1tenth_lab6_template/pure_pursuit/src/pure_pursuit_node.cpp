@@ -46,10 +46,10 @@ private:
     float base_angle = 0;
     float look_ahead = 2;
     float L; //baselink to wheel hinge midpoint distance
-    float bot_speed=5;
+    float bot_speed=5; //initial speed without rectification
     double alpha=0;
     int target_index=0;
-    float lad =1; //look-ahead distance
+    float lad =0.3*bot_speed; //look-ahead distance
 
     double steering_angle(float L, float alpha, float D){
         // cout << alpha << endl;
@@ -138,10 +138,11 @@ private:
     }   
 
     void initiate_target_index(){
-        return;     //comment out this return to use the function
-        int size = (int)waypoints.size();
-        float min = 10000;
-        for(int i=0;i<size;i++){
+        // return;     //comment out this return to use the function
+        cout<<"RESET ACTIVATED"<<endl;
+        // int size = (int)waypoints.size();
+        float min = 12000;
+        for(int i=0;i<4000;i++){
 
             float dx = waypoints[i].first - base_position[0];
             float dy = waypoints[i].second - base_position[1] ; 
@@ -151,6 +152,7 @@ private:
             float temp_alpha = atan(local_y/local_x);
             
             if(dist>lad and fabs(temp_alpha)<1.56 and dist<min) { 
+                cout << min << endl;
                 min=dist;
                 target_index=i;
             }
@@ -159,9 +161,8 @@ private:
     }
 
     vector<double> choose_waypoint(){
-        cout<<waypoints.size()<<endl; 
         int size = (int)waypoints.size();
-        if(target_index==size) initiate_target_index();
+        if(target_index>=11000) initiate_target_index();
         
         for(int i=target_index;i<size;i++){
 
@@ -171,7 +172,7 @@ private:
             float local_x = dx * cos(base_angle) + dy * sin(base_angle);
             float local_y = -dx * sin(base_angle) + dy * cos(base_angle);
             alpha = atan(local_y/local_x);
-
+            // lad = 0.3*bot_speed;
             if(dist>lad and fabs(alpha)<1.56) { 
                 // target_index = i;
                 cout << target_index <<endl;
@@ -190,7 +191,7 @@ public:
         //Generates list of waypoints from the csv
         readCoordinates("/home/utsab/ROS2_Workspaces/sim_ws/src/f1tenth_lab6_template/pure_pursuit/src/waypoints3.csv");
 
-        initiate_target_index();
+        // initiate_target_index();
         //Defined the publisher
         publisher_ = this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("drive", 10);
         //timer which loops every 500ms and updates stuff for the bot
@@ -214,9 +215,10 @@ public:
 
         // TODO: publish drive message, don't forget to limit the steering angle.
         auto message = ackermann_msgs::msg::AckermannDriveStamped();
-        message.drive.speed=bot_speed*(1-fabs(alpha)/1.57);
+        message.drive.speed=bot_speed*(1-fabs(alpha)/1.57); //speed rectified based on deviation from target. Allows the car to be stable at high speed turns.
         message.drive.steering_angle = (fabs(delta)>0.5)? 0.5*(delta)/fabs(delta):delta;
         message.drive.steering_angle = delta;
+        
         publisher_->publish(message);
 
         RCLCPP_INFO(this->get_logger(), "Speed: %.2f,Steering Angle : %.2f,Base Angle: %.2f, Alpha = %.2f",message.drive.speed,message.drive.steering_angle,base_angle,alpha);
@@ -225,6 +227,7 @@ public:
 
     ~PurePursuit() {}
 };
+
 int main(int argc, char **argv)
 {
     rclcpp::init(argc, argv);
