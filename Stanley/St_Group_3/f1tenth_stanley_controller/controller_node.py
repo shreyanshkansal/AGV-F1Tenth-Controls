@@ -1,37 +1,27 @@
 import rclpy
-from rclpy.node import Node
 import csv
+import time
 import numpy as np
-from decimal import Decimal
+from rclpy.node import Node
 from rclpy.qos import QoSProfile
-import rclpy.time
 from tf2_ros import Buffer
 from tf2_ros import TransformException
 from tf2_ros.transform_listener import TransformListener
-from sensor_msgs.msg import LaserScan
-from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 from geometry_msgs.msg import PointStamped
-from geometry_msgs.msg import Quaternion
 from geometry_msgs.msg import TransformStamped
 from ackermann_msgs.msg import AckermannDriveStamped
-from transforms3d import euler
-
 
 # TODO CHECK: include needed ROS msg type headers and libraries
 
 class StanleyController(Node):
-    # flw = 'ego_racecar/front_left_wheel'
-    # frw = 'ego_racecar/front_right_wheel'
-    # ff = 'map'
     def __init__(self):
         super().__init__('stanley_controller')
         # TODO: create ROS subscribers and publishers
-        self.k = 3
-        self.ks = 1
-        self.vel_max = 5
-        self.min_vel_ratio = 0.1
-        self.vel = 0.5
+        self.declare_parameter('k',5.0)
+        self.declare_parameter('ks',10.0)
+        self.declare_parameter('vel_max',5.0)
+        self.declare_parameter('min_vel_ratio',0.25)
         self.angle_limit = np.pi/7
         self.flw = 'ego_racecar/front_left_wheel'
         self.frw = 'ego_racecar/front_right_wheel'
@@ -39,6 +29,11 @@ class StanleyController(Node):
         self.brw = 'ego_racecar/back_right_wheel'
         self.bl = 'ego_racecar/base_link'
         self.ff = 'map'
+        self.k = float(self.get_parameter('k').get_parameter_value().double_value)
+        self.ks = float(self.get_parameter('ks').get_parameter_value().double_value)
+        self.vel_max = float(self.get_parameter('vel_max').get_parameter_value().double_value)
+        self.vel = self.vel_max
+        self.min_vel_ratio = float(self.get_parameter('min_vel_ratio').get_parameter_value().double_value)
         self.wayfile = '/sim_ws/src/f1tenth_stanley_controller/resource/waypoints.csv'
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -60,6 +55,15 @@ class StanleyController(Node):
             reader = csv.reader(file)
             self.waypoints = list(reader)
             
+    def getNearestWaypoint(self,x,y):
+        i = 0
+        min_dist = float("inf")
+        for j in range(len(self.waypoints)-1):
+            dist_ = np.sqrt((x-float(self.waypoints[j][0]))*(x-float(self.waypoints[j][0])) + (y-float(self.waypoints[j][1]))*(y-float(self.waypoints[j][1])))
+            if dist_ < min_dist:
+                min_dist = dist_
+                i = j
+        return i,float(self.waypoints[i][0]),float(self.waypoints[i][1])
     # def getTwist(self,msg:Odometry):
     #     x = float(msg.twist.twist.linear.x)
     #     y = float(msg.twist.twist.linear.y)
@@ -67,12 +71,12 @@ class StanleyController(Node):
     #     return
     
     def compute(self):
-    
         t_flw = TransformStamped()
         t_frw = TransformStamped()
         t_heading = TransformStamped()
         # TODO: find the current waypoint to track using methods mentioned in lecture
         while rclpy.ok():
+
             try:
                 #Syntax: First param: fixed frame/reference frame, second param: target frame
                 # self.tf_buffer.wait_for_transform_async(self.ff,self.flw,rclpy.time.Time(seconds=0))
@@ -93,27 +97,20 @@ class StanleyController(Node):
         yb0 = float(t_blw.transform.translation.y + t_brw.transform.translation.y)/2 
         self.vec = [x0 - xb0,y0 - yb0,0.0]
         if self.goal < len(self.waypoints) - 1:
-            while self.goal < len(self.waypoints)-1:
-                x1 = float(self.waypoints[self.goal][0])
-                y1 = float(self.waypoints[self.goal][1])
-                x2 = float(self.waypoints[self.goal+1][0])
-                y2 = float(self.waypoints[self.goal+1][1])
-                dist1 = np.sqrt(np.square(x1-x0) + np.square(y1-y0))
-                dist2 = np.sqrt(np.square(x2-x0) + np.square(y2-y0))
-                if(dist1 < dist2): 
-                    break
-                else:
-                    self.goal+=1
-
+            self.goal,x1,y1 = self.getNearestWaypoint(x=x0,y=y0)
+            num = int(np.power(1.3875,self.vel/(self.vel_max*self.min_vel_ratio)))
+            num += self.goal
+            num = np.minimum(num,len(self.waypoints)-1)
+            x2 = float(self.waypoints[num][0])
+            y2 = float(self.waypoints[num][1])
             # Goal waypoint visualisation
             p = PointStamped()
             p.header.frame_id = 'map'
             p.header.stamp = self.get_clock().now().to_msg()
-            p.point.x = x1
-            p.point.y = y1
+            p.point.x = x2
+            p.point.y = y2
             p.point.z = z0
             self.goal_pub.publish(p)
-            print(f'\nGoal: {self.waypoints[self.goal]}')
 
             # Coordinate Geometry
             # Line equation: L: ax + by + c = 0
@@ -134,17 +131,19 @@ class StanleyController(Node):
             cos = dp/(mag_line*mag_vel)
             psi_t:float = -vp_s*np.arccos(cos)
             
-
-            print(f'Velocity = {self.vel}')
-            print(f'Crosstrack Error = {e_t}, Heading Error = {psi_t*180/np.pi} deg')
-
             # Stanley Controller Algorithm
             delta_t = psi_t + np.sign(a*x0 + b*y0 + c)*np.arctan(self.k*(e_t/(self.ks + self.vel)))
-            # Large heading error approximation
             if(abs(delta_t) >= self.angle_limit): 
                 delta_t = np.sign(a*x0 + b*y0 + c)*self.angle_limit
 
-            print(f'Output steering angle: {delta_t}\n')
+            # Logs
+            print(f'\nParams: k = {self.k}, ks = {self.ks}, vel(max) = {self.vel_max}, vel(min) = {self.vel_max*self.min_vel_ratio}')
+            print(f'Goal: {self.waypoints[self.goal]}')
+            print(f'Velocity = {self.vel}')
+            print(f'Crosstrack Error = {e_t}, Heading Error = {psi_t*180/np.pi} deg')
+            print(f'Output steering angle: {delta_t*180/np.pi}\n')
+
+            # Publishing the steering angle and updated velocity
             msg:AckermannDriveStamped = AckermannDriveStamped()
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = "map"
@@ -168,6 +167,7 @@ class StanleyController(Node):
 
 def main(args=None):
     rclpy.init(args=args)
+    
     print("Starting Stanley Node...")
     node = StanleyController()
     
@@ -177,6 +177,7 @@ def main(args=None):
         print(f'\nStopping the robot!')
         vel:Twist = Twist()
         node.vel_pub.publish(vel)
+        time.sleep(1)
     finally:
         node.destroy_node()
         rclpy.shutdown()
