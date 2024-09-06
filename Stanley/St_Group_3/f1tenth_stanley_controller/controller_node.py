@@ -107,7 +107,7 @@ class StanleyController(Node):
 
         # Retreiving closest waypoint data
         self.goal,x1,y1 = self.getNearestWaypoint(x=x0,y=y0)
-        num = int(np.power(1.0,self.vel/(self.vel_max*self.min_vel_ratio)))
+        num = int(np.power(1.05,self.vel/(self.vel_max*self.min_vel_ratio)))
         num += self.goal
         num = np.minimum(num,len(self.waypoints)-1)
         x2 = float(self.waypoints[num][0])
