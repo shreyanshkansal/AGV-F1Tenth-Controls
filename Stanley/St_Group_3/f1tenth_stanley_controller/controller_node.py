@@ -32,7 +32,7 @@ class StanleyController(Node):
         self.brw = 'ego_racecar/back_right_wheel'
         self.bl = 'ego_racecar/base_link'
         self.ff = 'map'
-        self.wayfile = '/sim_ws/src/f1tenth_stanley_controller/resource/Spielberg_waypoints.csv'
+        self.wayfile = '/sim_ws/src/f1tenth_stanley_controller/resource/Spielberg_Waypoints(3).csv'
 
         # Copying the entered parameter values to the variables
         self.k = float(self.get_parameter('k').get_parameter_value().double_value)
