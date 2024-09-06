@@ -22,7 +22,7 @@ class StanleyController(Node):
         self.declare_parameter('min_vel_ratio',0.25)
 
         # Constants
-        self.angle_limit = np.pi/7
+        self.angle_limit = np.pi/6
         self.goal = 0
         self.avg_vel = 0
         self.count = 0
@@ -32,7 +32,7 @@ class StanleyController(Node):
         self.brw = 'ego_racecar/back_right_wheel'
         self.bl = 'ego_racecar/base_link'
         self.ff = 'map'
-        self.wayfile = '/sim_ws/src/f1tenth_stanley_controller/resource/waypoints.csv'
+        self.wayfile = '/sim_ws/src/f1tenth_stanley_controller/resource/Spielberg_waypoints.csv'
 
         # Copying the entered parameter values to the variables
         self.k = float(self.get_parameter('k').get_parameter_value().double_value)
@@ -58,7 +58,8 @@ class StanleyController(Node):
         self.publisher = self.create_publisher(AckermannDriveStamped,'/drive',qos_profile=qos)
         self.vel_pub = self.create_publisher(Twist,'/cmd_vel',qos_profile=qos)
         self.goal_pub = self.create_publisher(PointStamped,'/local_goal_point',qos_profile=qos)
-        self.timer = self.create_timer(timer_period_sec=0.1,callback=self.compute)
+        time.sleep(0.05)
+        self.timer = self.create_timer(timer_period_sec=0.01,callback=self.compute)
 
     def getWaypoints(self):
         with open(file=self.wayfile,mode='r') as file:
@@ -106,7 +107,7 @@ class StanleyController(Node):
 
         # Retreiving closest waypoint data
         self.goal,x1,y1 = self.getNearestWaypoint(x=x0,y=y0)
-        num = int(np.power(1.3875,self.vel/(self.vel_max*self.min_vel_ratio)))
+        num = int(np.power(1.0,self.vel/(self.vel_max*self.min_vel_ratio)))
         num += self.goal
         num = np.minimum(num,len(self.waypoints)-1)
         x2 = float(self.waypoints[num][0])
@@ -136,8 +137,8 @@ class StanleyController(Node):
         # Sign of the cross product determines the side of the path in which the robot is moving (right/clockwise or left/anticlockwise)
         vp_s = np.sign(np.cross([x2-x1,y2-y1,0.0],self.vec)[2])
         mag_line = np.sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1))
-        mag_vel = np.sqrt((self.vec[0])*(self.vec[0]) + (self.vec[1])*(self.vec[1]))
-        cos = dp/(mag_line*mag_vel)
+        mag_heading = np.sqrt((self.vec[0])*(self.vec[0]) + (self.vec[1])*(self.vec[1]))
+        cos = dp/(mag_line*mag_heading)
         psi_t:float = -vp_s*np.arccos(cos)
         
         # Stanley Controller Algorithm
