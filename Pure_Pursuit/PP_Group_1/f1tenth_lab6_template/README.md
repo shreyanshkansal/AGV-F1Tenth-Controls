@@ -19,3 +19,10 @@
     - The more you try to increase the speed, the lower you must set the loop delay(ros2 timer object). This is one of the problems we face in the code.
     - At very high speeds it becomes impossible for correct turns whichout crashes regardless of the timer delay.
 
+- **Pure Pursuit V2**
+	- It is for the Spielberg map and uses the spielberg_waypoints.csv file.
+	- The waypoints are generated using the min curvature algorithm.
+	- It goes at max speed of 8.
+	- To run this node just edit the map path in sim.yaml and change "levine" to "Spielberg_map"
+	- Build and run.
+	- It has a looping function so the bot keeps going in a loop around the map.

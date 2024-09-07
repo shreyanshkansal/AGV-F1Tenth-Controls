@@ -38,14 +38,19 @@ include_directories(
 
 # Create Cpp executable
 add_executable(pure_pursuit_node src/pure_pursuit_node.cpp)
+add_executable(pp_spielberg_min_curve src/pp_spielberg_min_curve.cpp)
 
 ament_target_dependencies(pure_pursuit_node 
   rclcpp geometry_msgs ackermann_msgs nav_msgs sensor_msgs std_msgs visualization_msgs tf2_ros tf2
 )
 
+ament_target_dependencies(pp_spielberg_min_curve 
+  rclcpp geometry_msgs ackermann_msgs nav_msgs sensor_msgs std_msgs visualization_msgs tf2_ros tf2
+)
 # Install Cpp executables
 install(TARGETS
   pure_pursuit_node
+  pp_spielberg_min_curve
   DESTINATION lib/${PROJECT_NAME})
 
 # Install Python modules
