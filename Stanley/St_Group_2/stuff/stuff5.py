@@ -1,4 +1,3 @@
-
 import rclpy
 from rclpy.node import Node
 import tf2_ros
@@ -15,11 +14,10 @@ class Stanley(Node):
     def __init__(self):
         super().__init__('stan')
 
-        self.k= 1.5
-        self.k_s = 15.0
-        self.max_velocity = 4.0
-        self.an_li = np.pi/7
-        self.velocity = self.max_velocity
+        self.k= 0.1
+        self.k_s = 2.0
+        self.velocity = 0.5
+        self.an_li = np.pi/6
         # TF Listener
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -38,20 +36,14 @@ class Stanley(Node):
         self.timer = self.create_timer(0.0001, self.stanley)
 
     def load_waypoints(self):
-        """ Load waypoints from a CSV file efficiently """
+        """ Load waypoints from a CSV file  """
         waypoints = pd.read_csv(self.wayfile, header=None).values
         return waypoints
-
-    def sigmoid(self, vel_diff):
-        out_vel = self.max_velocity - (self.max_velocity/(1+np.exp(-(vel_diff+2))))
-        return out_vel
-
-    def get_nearest_waypoint(self, x, y, j):
+    
+    def get_nearest_waypoint(self, x, y):
         """ Find the nearest waypoint to the current position """
         min_dist = float('inf')
-        nearest_index = j
-        if (j>=len((self.waypoints)-50)):
-            j = 0
+        nearest_index = 0
         for i in range(len(self.waypoints) - 1):
             dist = np.sqrt((x - float(self.waypoints[i][0])) ** 2 + (y - float(self.waypoints[i][1])) ** 2)
             if dist < min_dist:
@@ -59,11 +51,13 @@ class Stanley(Node):
                 nearest_index = i
         return nearest_index, float(self.waypoints[nearest_index][0]), float(self.waypoints[nearest_index][1])
 
+
     def stanley(self):
         left = self.get_parameter('left').get_parameter_value().string_value
         right = self.get_parameter('right').get_parameter_value().string_value
         map = self.get_parameter('map').get_parameter_value().string_value        
         base = self.get_parameter('base').get_parameter_value().string_value
+
         try:
             # Wait for the transform to be available
             self.tf_buffer.wait_for_transform_async(map, left, rclpy.time.Time())
@@ -91,6 +85,7 @@ class Stanley(Node):
             at.transform.translation.y = _y
             at.transform.translation.z = _z
 
+            # Use the orientation from one of the hinge frames, for instance, the left hinge
             at.transform.rotation = basey.transform.rotation
             quaternion = (
                 basey.transform.rotation.x,
@@ -102,13 +97,11 @@ class Stanley(Node):
 
             x0 = _x
             y0 = _y
-
-            '''idk = int((2 * self.velocity))
+            idk = math.trunc(5 * self.velocity)
             if idk<1:
-                idk = 1'''
-            idk = 1
-            self.waypoint_i = self.waypoint_i % (len(self.waypoints)-1)
-            if self.waypoint_i < len(self.waypoints):
+                idk = 1
+            self.waypoint_i % (len(self.waypoints)-1)
+            '''if self.waypoint_i < len(self.waypoints):
                 x1, y1 = self.waypoints[self.waypoint_i % (len(self.waypoints)-1)]
                 x2, y2 = self.waypoints[(self.waypoint_i + idk) % (len(self.waypoints)-1)]
 
@@ -116,32 +109,29 @@ class Stanley(Node):
                 dist2 = np.sqrt((x2 - x0) ** 2 + (y2 - y0) ** 2)
 
                 if dist1 > dist2:
-                    self.waypoint_i += 1
-                    x1, y1 = self.waypoints[(self.waypoint_i) % (len(self.waypoints)-1)]
-                    x2, y2 = self.waypoints[(self.waypoint_i + idk) % (len(self.waypoints)-1)]
-            '''self.waypoint_i, x1, y1 = self.get_nearest_waypoint(_x, _y,self.waypoint_i)
-            #idk = int((5 * self.velocity))
-            idk = 1
+                    self.waypoint_i += idk
+                    x1, y1 = self.waypoints[self.waypoint_i % (len(self.waypoints)-1)]
+                    x2, y2 = self.waypoints[(self.waypoint_i + idk) % (len(self.waypoints)-1)]'''
+            self.waypoint_i, x1, y1 = self.get_nearest_waypoint(_x, _y)
+            idk = int((8 * self.velocity))
             if idk<1:
                 idk = 1
-            x2 = float(self.waypoints[self.waypoint_i + idk][0])
-            y2 = float(self.waypoints[self.waypoint_i + idk][1])'''
-            m = (y2 - y1) / (x2 - x1)
-            a = y2 -y1
-            b = x1 -x2
-            c = y1 * (x2 -x1) - x1 * (y2 -y1)
-            cte = abs(a * x0 + b * y0 + c) / np.sqrt(a*a + b*b)
+            idk += self.waypoint_i
+            idk = idk % (len(self.waypoints)-1)
+            x2 = float(self.waypoints[idk][0])
+            y2 = float(self.waypoints[idk][1])
 
-        
-            #self.get_logger().info(f'Roll: {math.degrees(roll)}, Pitch: {math.degrees(pitch)}, Yaw: {math.degrees(yaw)}')
+            m = (y2 - y1) / (x2 - x1)
+            c = y1 - m * x1
+            cte = abs(m * x0 - y0 + c) / np.sqrt(1 + m * m)
+
+            
+            
+            self.get_logger().info(f'Yaw: {yaw}')
+            #self.get_logger().info(f'Front axle center coordinates (absolute): x={_x}, y={_y}, z={_z}')
             psi_t = np.arctan((m - np.tan(yaw)) / (1 + m * np.tan(yaw)))
             steer = psi_t + np.arctan(self.k * cte / (self.k_s + self.velocity))
-            '''steer = np.sign(steer) * min(abs(steer), self.an_li)'''
-            if abs(steer) >= self.an_li:
-                difference = abs(steer) - self.an_li
-                self.velocity = self.sigmoid(difference)
-            else:
-                self.velocity = self.max_velocity
+            steer = np.sign(steer) * min(abs(steer), self.an_li)
 
                 # Publish drive command
             drive_msg = AckermannDriveStamped()
@@ -149,9 +139,6 @@ class Stanley(Node):
             drive_msg.drive.speed = self.velocity
             self.drive.publish(drive_msg)
             #self.get_logger().info(f'{self.waypoint_i}')
-            #self.get_logger().info(f'Velocity and other shit {self.velocity},{cte},{psi_t}')
-            self.get_logger().info(f'Velocity and other shit {yaw}, {psi_t}')
-
 
         except TransformException as e:
 
