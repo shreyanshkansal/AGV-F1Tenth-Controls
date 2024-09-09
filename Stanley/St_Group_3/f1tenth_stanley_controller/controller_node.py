@@ -58,7 +58,7 @@ class StanleyController(Node):
         self.publisher = self.create_publisher(AckermannDriveStamped,'/drive',qos_profile=qos)
         self.vel_pub = self.create_publisher(Twist,'/cmd_vel',qos_profile=qos)
         self.goal_pub = self.create_publisher(PointStamped,'/local_goal_point',qos_profile=qos)
-        time.sleep(0.05)
+        time.sleep(1) # waits for the frames to be intialized and ready for tranformations
         self.timer = self.create_timer(timer_period_sec=0.01,callback=self.compute)
 
     def getWaypoints(self):
